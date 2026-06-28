@@ -60,6 +60,8 @@
 
   const keys = {};
   let gameState = "title"; // title | playing | dead | gameover
+  let paused = false;
+  let muted = false;
   let score = 0;
   let highScore = parseInt(localStorage.getItem("asteroids-hi") || "0", 10);
   let lives = 3;
@@ -87,10 +89,10 @@
   function wrap(x, y) {
     let wx = x;
     let wy = y;
-    if (wx < 0) wx += W;
-    if (wx >= W) wx -= W;
-    if (wy < 0) wy += H;
-    if (wy >= H) wy -= H;
+    while (wx < 0) wx += W;
+    while (wx >= W) wx -= W;
+    while (wy < 0) wy += H;
+    while (wy >= H) wy -= H;
     return [wx, wy];
   }
 
@@ -158,13 +160,20 @@
       vx = Math.cos(angle) * speed;
       vy = Math.sin(angle) * speed;
     }
+    const verts = makeAsteroidShape(size);
+    let maxR = 0;
+    for (const [lx, ly] of verts) {
+      const r = Math.hypot(lx, ly);
+      if (r > maxR) maxR = r;
+    }
     asteroids.push({
       x,
       y,
       vx,
       vy,
       size,
-      verts: makeAsteroidShape(size),
+      verts,
+      maxR,
       rot: rand(-0.02, 0.02),
       angle: 0,
     });
@@ -198,9 +207,9 @@
 
   function startWave() {
     wave++;
-    stopAllUfoSounds();
+    // Note: a saucer already on screen is allowed to fly out on its own rather
+    // than vanishing the instant the last asteroid is destroyed.
     asteroids = [];
-    ufos = [];
     ufoTimer = UFO_SPAWN_DELAY;
     const count = 3 + wave; // wave 1: 4 large asteroids (original)
     for (let i = 0; i < count; i++) {
@@ -213,10 +222,9 @@
     gameState = "playing";
 
     try {
-      if (typeof Sounds !== "undefined") {
-        Sounds.init();
-        Sounds.setThrust(false);
-      }
+      Sounds.init();
+      Sounds.setMuted(muted);
+      Sounds.setThrust(false);
       stopAllUfoSounds();
       score = 0;
       lives = 3;
@@ -487,13 +495,8 @@
   }
 
   function updateShip() {
-    if (ship.exploding) {
-      ship.explodeTimer--;
-      if (ship.explodeTimer <= 0) {
-        ship.exploding = false;
-      }
-      return;
-    }
+    // Explosions are driven entirely by updateDead (gameState flips to "dead"
+    // the same frame killShip runs), so updateShip only handles a live ship.
     if (ship.dead) return;
 
     if (ship.invuln > 0) ship.invuln--;
@@ -599,7 +602,10 @@
 
       for (let ai = asteroids.length - 1; ai >= 0; ai--) {
         const a = asteroids[ai];
-        if (dist(b.x, b.y, a.x, a.y) < ASTEROID_RADII[a.size]) {
+        // Broad phase against the true outer radius, then exact polygon test so
+        // spiky points register and concave gaps don't.
+        if (dist(b.x, b.y, a.x, a.y) > a.maxR) continue;
+        if (pointInPoly(b.x, b.y, worldVerts(a.x, a.y, a.angle, a.verts))) {
           addScore(ASTEROID_SCORE[a.size]);
           splitAsteroid(a);
           asteroids.splice(ai, 1);
@@ -673,7 +679,11 @@
 
     ufoTimer--;
     if (ufoTimer <= 0 && ufos.length === 0) {
-      spawnUfo(Math.random() < 0.3);
+      // Small (aimed) saucers grow more common as the score climbs, like the
+      // original. Early game is mostly large saucers.
+      const smallChance = Math.min(0.85, 0.2 + score / 40000);
+      const large = Math.random() >= smallChance;
+      spawnUfo(large);
       ufoTimer = UFO_SPAWN_DELAY + randInt(0, 300);
     }
   }
@@ -840,6 +850,24 @@
     ctx.fillText("Press any key to play again", W / 2, H / 2 + 55);
   }
 
+  function drawPaused() {
+    ctx.fillStyle = "rgba(0,0,0,0.5)";
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    ctx.font = '36px "Courier New", Courier, monospace';
+    ctx.fillText("PAUSED", W / 2, H / 2 - 10);
+    ctx.font = '14px "Courier New", Courier, monospace';
+    ctx.fillText("Press P to resume", W / 2, H / 2 + 25);
+  }
+
+  function drawMuted() {
+    ctx.fillStyle = "rgba(255,255,255,0.6)";
+    ctx.font = '12px "Courier New", Courier, monospace';
+    ctx.textAlign = "right";
+    ctx.fillText("MUTED", W - 20, H - 20);
+  }
+
   function draw() {
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, W, H);
@@ -854,11 +882,35 @@
     drawWave();
 
     if (gameState === "gameover") drawGameOver();
+    if (muted) drawMuted();
+    if (paused) drawPaused();
   }
 
-  function loop() {
-    if (gameState === "playing") updatePlaying();
-    else if (gameState === "dead") updateDead();
+  // Fixed-timestep loop so the game runs at the same speed regardless of
+  // the display's refresh rate (60, 120, 144 Hz, ...).
+  const STEP_MS = 1000 / 60;
+  const MAX_FRAME_MS = 250; // clamp catch-up after tab switches / stalls
+  let lastTime = null;
+  let acc = 0;
+
+  function loop(now) {
+    if (lastTime === null) lastTime = now;
+    let delta = now - lastTime;
+    lastTime = now;
+
+    if (paused) {
+      draw();
+      requestAnimationFrame(loop);
+      return;
+    }
+
+    if (delta > MAX_FRAME_MS) delta = MAX_FRAME_MS;
+    acc += delta;
+    while (acc >= STEP_MS) {
+      if (gameState === "playing") updatePlaying();
+      else if (gameState === "dead") updateDead();
+      acc -= STEP_MS;
+    }
     draw();
     requestAnimationFrame(loop);
   }
@@ -875,6 +927,24 @@
     startGame();
   }
 
+  function setPaused(p) {
+    if (p === paused) return;
+    if (p && gameState !== "playing" && gameState !== "dead") return;
+    paused = p;
+    if (paused) {
+      Sounds.setThrust(false);
+      stopAllUfoSounds();
+    } else {
+      lastTime = null; // avoid a catch-up burst after the pause
+      resumeUfoSounds();
+    }
+  }
+
+  function toggleMute() {
+    muted = !muted;
+    Sounds.setMuted(muted);
+  }
+
   // --- Input ---
 
   function handleKeyDown(e) {
@@ -889,6 +959,16 @@
       e.preventDefault();
     }
 
+    if (k === "m") {
+      toggleMute();
+      return;
+    }
+    if (k === "p") {
+      setPaused(!paused);
+      return;
+    }
+    if (paused) return;
+
     keys[k] = true;
     if (k === " ") fireBullet();
     if (k === "h") hyperspace();
@@ -901,6 +981,12 @@
   window.addEventListener("keydown", handleKeyDown);
   window.addEventListener("keyup", handleKeyUp);
 
+  // Auto-pause when the tab is hidden so looping audio (thrust / saucer) and
+  // game state don't carry on in the background.
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) setPaused(true);
+  });
+
   document.getElementById("cabinet").addEventListener("pointerdown", () => {
     canvas.focus();
     if (gameState === "title" || gameState === "gameover") {
@@ -908,5 +994,45 @@
     }
   });
 
-  loop();
+  // --- Touch controls ---
+
+  function setupTouchControls() {
+    const isTouch =
+      window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+    const panel = document.getElementById("touch");
+    if (!isTouch || !panel) return;
+    panel.classList.add("show");
+
+    for (const btn of panel.querySelectorAll(".tbtn")) {
+      const key = btn.dataset.key;
+
+      btn.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof btn.setPointerCapture === "function") {
+          try { btn.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+        }
+        if (gameState === "title" || gameState === "gameover") {
+          beginGame();
+          return;
+        }
+        if (paused) return;
+        keys[key] = true;
+        if (key === " ") fireBullet();
+        if (key === "h") hyperspace();
+      });
+
+      const release = (e) => {
+        e.preventDefault();
+        keys[key] = false;
+      };
+      btn.addEventListener("pointerup", release);
+      btn.addEventListener("pointercancel", release);
+      btn.addEventListener("pointerleave", release);
+    }
+  }
+
+  setupTouchControls();
+
+  requestAnimationFrame(loop);
 })();

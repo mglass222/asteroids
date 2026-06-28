@@ -1,6 +1,8 @@
 const Sounds = (() => {
   let ctx = null;
   let master = null;
+  let muted = false;
+  const MASTER_VOL = 0.4;
 
   let thrustSource = null;
   let thrustGain = null;
@@ -12,8 +14,13 @@ const Sounds = (() => {
     }
     ctx = new (window.AudioContext || window.webkitAudioContext)();
     master = ctx.createGain();
-    master.gain.value = 0.4;
+    master.gain.value = muted ? 0 : MASTER_VOL;
     master.connect(ctx.destination);
+  }
+
+  function setMuted(m) {
+    muted = m;
+    if (master) master.gain.value = muted ? 0 : MASTER_VOL;
   }
 
   function tone(freq, duration, type, vol, ramp) {
@@ -131,6 +138,7 @@ const Sounds = (() => {
 
   return {
     init,
+    setMuted,
 
     fire() {
       tone(880, 0.06, "square", 0.12);

@@ -56,3 +56,44 @@ body {
   margin: 0.5vmin 0;
   opacity: 0.85;
 }
+
+/* On-screen controls for touch devices. Hidden until JS detects touch. */
+#touch {
+  display: none;
+  position: absolute;
+  inset: auto 0 0 0;
+  justify-content: space-between;
+  padding: 0 4vw 4vh;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#touch.show {
+  display: flex;
+}
+
+.touch-left,
+.touch-right {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+}
+
+.tbtn {
+  pointer-events: auto;
+  width: clamp(56px, 16vw, 84px);
+  height: clamp(56px, 16vw, 84px);
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-family: "Courier New", Courier, monospace;
+  font-size: clamp(16px, 4vw, 22px);
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tbtn:active {
+  background: rgba(255, 255, 255, 0.3);
+}
