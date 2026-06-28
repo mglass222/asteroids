@@ -1,0 +1,58 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  font-family: "Courier New", Courier, monospace;
+}
+
+#cabinet {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+}
+
+#game {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #000;
+  cursor: crosshair;
+  outline: none;
+}
+
+#overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  color: #fff;
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.6);
+}
+
+#overlay.hidden {
+  display: none;
+}
+
+#title {
+  font-size: clamp(32px, 6vmin, 64px);
+  letter-spacing: 0.3em;
+  margin-bottom: 5vmin;
+}
+
+.hint {
+  font-size: clamp(12px, 2vmin, 16px);
+  letter-spacing: 0.15em;
+  margin: 0.5vmin 0;
+  opacity: 0.85;
+}
