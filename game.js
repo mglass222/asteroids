@@ -54,7 +54,7 @@
 
   const UFO_LARGE_SPEED = 1.2;
   const UFO_SMALL_SPEED = 3.5;
-  const UFO_SPAWN_DELAY = 600;   // ~10s
+  const UFO_SPAWN_DELAY = 1200;  // 20s @ 60fps
   const UFO_FIRE_LARGE = 120;
   const UFO_FIRE_SMALL = 45;
 
