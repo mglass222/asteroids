@@ -113,7 +113,7 @@ const Sounds = (() => {
     lfo.connect(lfoGain);
     lfoGain.connect(osc.frequency);
 
-    gain.gain.value = large ? 0.07 : 0.055;
+    gain.gain.value = large ? 0.045 : 0.035;
     osc.connect(gain);
     gain.connect(master);
     lfo.start();
