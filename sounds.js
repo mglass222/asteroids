@@ -141,7 +141,8 @@ const Sounds = (() => {
     setMuted,
 
     fire() {
-      tone(880, 0.06, "square", 0.12);
+      tone(1320, 0.045, "square", 0.1, 520);
+      tone(660, 0.035, "square", 0.035, 330);
     },
 
     ufoFire() {
