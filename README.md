@@ -1,6 +1,6 @@
 # Asteroids
 
-A browser-based recreation of the classic 1979 Atari arcade game. Vector graphics, momentum-based flight, asteroid splitting, UFOs, and synthesized arcade sound — all in vanilla HTML, CSS, and JavaScript.
+A browser-based recreation of the classic 1979 Atari arcade game. Vector graphics, momentum-based flight, asteroid splitting, UFOs, score rollover, initials, saucers, and synthesized arcade sound - all in vanilla HTML, CSS, and JavaScript.
 
 **[Play online](https://mglass222.github.io/asteroids/)**
 
@@ -8,8 +8,8 @@ A browser-based recreation of the classic 1979 Atari arcade game. Vector graphic
 
 | Key | Action |
 |-----|--------|
-| **W** | Thrust |
-| **A** / **D** | Rotate left / right |
+| **Up** / **W** | Thrust |
+| **Left** / **Right** or **A** / **D** | Rotate left / right |
 | **Space** | Fire |
 | **H** | Hyperspace |
 
@@ -19,11 +19,11 @@ Press any key (or click the screen) to start.
 
 - Faithful vector-style graphics on an HTML5 canvas
 - Momentum-based ship movement with screen wrapping
-- Asteroids split into smaller pieces when hit (large → medium → small)
-- UFOs fly across the screen with distinct large/small behavior
-- Web Audio API–synthesized sound effects (thrust, fire, explosions, UFO hum)
-- Lives, scoring, extra lives every 10,000 points, and persistent high score
-- Full-window responsive layout
+- Asteroids split into smaller pieces when hit (large -> medium -> small)
+- UFOs fly across the screen with distinct large/small behavior and score-based aim
+- Web Audio API-synthesized sound effects, including the accelerating heartbeat
+- Lives, score rollover at 100,000, extra lives every 10,000 points, and initials-based high scores
+- Centered 4:3 vector-monitor layout
 
 ## Run locally
 
@@ -37,10 +37,10 @@ Then visit `http://localhost:3000`.
 
 ## Tech
 
-- `index.html` — page shell and overlay UI
-- `style.css` — full-viewport layout
-- `game.js` — game loop, physics, collision, rendering
-- `sounds.js` — procedural arcade audio
+- `index.html` - page shell and overlay UI
+- `style.css` - 4:3 cabinet layout
+- `game.js` - game loop, physics, collision, rendering
+- `sounds.js` - procedural arcade audio
 
 ## License
 

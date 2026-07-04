@@ -11,12 +11,14 @@ body {
   overflow: hidden;
   background: #000;
   font-family: "Courier New", Courier, monospace;
+  display: grid;
+  place-items: center;
 }
 
 #cabinet {
   position: relative;
-  width: 100vw;
-  height: 100vh;
+  width: min(100vw, calc(100vh * 4 / 3));
+  aspect-ratio: 4 / 3;
 }
 
 #game {
@@ -52,7 +54,7 @@ body {
 
 .hint {
   font-size: clamp(12px, 2vmin, 16px);
-  letter-spacing: 0.15em;
+  letter-spacing: 0.1em;
   margin: 0.5vmin 0;
   opacity: 0.85;
 }

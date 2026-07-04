@@ -148,6 +148,10 @@ const Sounds = (() => {
       tone(220, 0.08, "square", 0.1, 110);
     },
 
+    heartbeat(high) {
+      tone(high ? 72 : 58, 0.045, "square", 0.075);
+    },
+
     asteroidHit(size) {
       const freqs = [120, 180, 260];
       noiseBurst(0.12 + size * 0.04, 0.18 - size * 0.03, freqs[size] || 260);
