@@ -230,8 +230,8 @@
     return verts;
   }
 
-  function spawnAsteroid(x, y, size, vx, vy) {
-    if (asteroids.length >= ASTEROID_OBJECT_CAP) return false;
+  function spawnAsteroid(x, y, size, vx, vy, pendingRemovalCount = 0) {
+    if (asteroids.length - pendingRemovalCount >= ASTEROID_OBJECT_CAP) return false;
     if (vx === undefined) {
       const speed = ASTEROID_SPEED[size] * rand(0.7, 1.3);
       const angle = rand(0, TAU);
@@ -532,20 +532,35 @@
 
   function splitAsteroid(ast) {
     const { x, y, size, vx, vy } = ast;
+    if (size < 2 && asteroids.length - 1 + 2 > ASTEROID_OBJECT_CAP) return false;
+
     Sounds.asteroidHit(size);
     if (size >= 2) {
       spawnExplosion(x, y, 8, 2, 20);
-      return;
+      return true;
     }
     const newSize = size + 1;
     const baseAngle = Math.atan2(vy, vx);
+    const originalLength = asteroids.length;
     for (let i = 0; i < 2; i++) {
       const spread = (i === 0 ? 1 : -1) * rand(0.4, 0.9);
       const speed = ASTEROID_SPEED[newSize] * rand(0.8, 1.2);
       const angle = baseAngle + spread;
-      spawnAsteroid(x, y, newSize, Math.cos(angle) * speed, Math.sin(angle) * speed);
+      const spawned = spawnAsteroid(
+        x,
+        y,
+        newSize,
+        Math.cos(angle) * speed,
+        Math.sin(angle) * speed,
+        1
+      );
+      if (!spawned) {
+        asteroids.splice(originalLength);
+        return false;
+      }
     }
     spawnExplosion(x, y, 6, 1.5, 16);
+    return true;
   }
 
   function worldVerts(x, y, angle, verts) {
@@ -724,11 +739,13 @@
         // spiky points register and concave gaps don't.
         if (dist(b.x, b.y, a.x, a.y) > a.maxR) continue;
         if (pointInPoly(b.x, b.y, worldVerts(a.x, a.y, a.angle, a.verts))) {
+          const didSplit = splitAsteroid(a);
+          bullets.splice(bi, 1);
+          if (!didSplit) break;
+
           addScore(ASTEROID_SCORE[a.size]);
           waveHits++;
-          splitAsteroid(a);
           asteroids.splice(ai, 1);
-          bullets.splice(bi, 1);
           break;
         }
       }
