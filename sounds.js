@@ -3,9 +3,12 @@ const Sounds = (() => {
   let master = null;
   let muted = false;
   const MASTER_VOL = 0.4;
+  const FIRE_SAMPLE_URL = "assets/fire.wav";
 
   let thrustSource = null;
   let thrustGain = null;
+  let fireBuffer = null;
+  let fireLoadPromise = null;
 
   function init() {
     if (ctx) {
@@ -16,6 +19,7 @@ const Sounds = (() => {
     master = ctx.createGain();
     master.gain.value = muted ? 0 : MASTER_VOL;
     master.connect(ctx.destination);
+    loadFireSample();
   }
 
   function setMuted(m) {
@@ -38,6 +42,45 @@ const Sounds = (() => {
     gain.connect(master);
     osc.start();
     osc.stop(ctx.currentTime + duration + 0.02);
+  }
+
+  function assetUrl(path) {
+    const version = window.ASTEROIDS_ASSET_VERSION;
+    return version ? `${path}?v=${version}` : path;
+  }
+
+  function loadFireSample() {
+    if (!ctx || fireLoadPromise) return fireLoadPromise;
+    fireLoadPromise = fetch(assetUrl(FIRE_SAMPLE_URL))
+      .then((res) => {
+        if (!res.ok) throw new Error(`Failed to load ${FIRE_SAMPLE_URL}`);
+        return res.arrayBuffer();
+      })
+      .then((data) => ctx.decodeAudioData(data))
+      .then((buffer) => {
+        fireBuffer = buffer;
+      })
+      .catch((err) => {
+        fireLoadPromise = null;
+        console.warn(err);
+      });
+    return fireLoadPromise;
+  }
+
+  function playBuffer(buffer, vol) {
+    if (!ctx || !buffer) return false;
+    const src = ctx.createBufferSource();
+    const gain = ctx.createGain();
+    src.buffer = buffer;
+    gain.gain.value = vol;
+    src.connect(gain);
+    gain.connect(master);
+    src.onended = () => {
+      src.disconnect();
+      gain.disconnect();
+    };
+    src.start();
+    return true;
   }
 
   function noiseBurst(duration, vol, filterFreq) {
@@ -141,6 +184,8 @@ const Sounds = (() => {
     setMuted,
 
     fire() {
+      if (playBuffer(fireBuffer, 0.22)) return;
+      loadFireSample();
       tone(1320, 0.045, "square", 0.1, 520);
       tone(660, 0.035, "square", 0.035, 330);
     },
