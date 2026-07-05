@@ -24,6 +24,9 @@
 
   resizeCanvas();
   window.addEventListener("resize", resizeCanvas);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", resizeCanvas);
+  }
 
   // --- Original-style tuning ---
   const ROT_SPEED = 0.078;       // ~4.5°/frame @ 60fps
@@ -1189,12 +1192,18 @@
       beginGame();
     }
   });
+  document.getElementById("cabinet").addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+  });
 
   // --- Touch controls ---
 
   function setupTouchControls() {
     const isTouch =
-      window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+      window.matchMedia("(pointer: coarse)").matches ||
+      "ontouchstart" in window ||
+      window.innerWidth <= 700 ||
+      (window.innerHeight <= 480 && window.innerWidth <= 900);
     const panel = document.getElementById("touch");
     if (!isTouch || !panel) return;
     panel.classList.add("show");

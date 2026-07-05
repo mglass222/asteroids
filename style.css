@@ -9,15 +9,25 @@ body {
   width: 100%;
   height: 100%;
   overflow: hidden;
+  overscroll-behavior: none;
   background: #000;
   font-family: "Courier New", Courier, monospace;
   display: grid;
   place-items: center;
+  touch-action: none;
+}
+
+@supports (height: 100dvh) {
+  html,
+  body {
+    height: 100dvh;
+  }
 }
 
 #cabinet {
   position: relative;
   width: min(100vw, calc(100vh * 4 / 3));
+  width: min(100vw, calc(100dvh * 4 / 3));
   aspect-ratio: 4 / 3;
 }
 
@@ -98,4 +108,102 @@ body {
 
 .tbtn:active {
   background: rgba(255, 255, 255, 0.3);
+}
+
+@media (max-width: 700px), (pointer: coarse), (max-height: 480px) and (max-width: 900px) {
+  body {
+    align-items: stretch;
+    justify-items: stretch;
+  }
+
+  #cabinet {
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    aspect-ratio: auto;
+  }
+
+  #game {
+    cursor: default;
+  }
+
+  #overlay {
+    justify-content: flex-start;
+    padding: max(84px, 14vh) 24px 0;
+    text-align: center;
+  }
+
+  #title {
+    font-size: clamp(30px, 10vw, 54px);
+    letter-spacing: 0.18em;
+    margin-bottom: 24px;
+  }
+
+  .hint {
+    max-width: 32ch;
+    font-size: clamp(11px, 3.3vw, 15px);
+    line-height: 1.35;
+  }
+
+  #touch {
+    --touch-size: clamp(58px, 17vw, 76px);
+    align-items: flex-end;
+    gap: 12px;
+    padding:
+      0
+      max(16px, env(safe-area-inset-right))
+      max(18px, calc(env(safe-area-inset-bottom) + 18px))
+      max(16px, env(safe-area-inset-left));
+  }
+
+  .touch-left {
+    gap: 12px;
+  }
+
+  .touch-right {
+    display: grid;
+    grid-template-columns: repeat(2, var(--touch-size));
+    grid-template-areas:
+      "hyp thrust"
+      "fire fire";
+    gap: 10px;
+    justify-items: center;
+  }
+
+  .touch-right .tbtn:nth-child(1) {
+    grid-area: hyp;
+  }
+
+  .touch-right .tbtn:nth-child(2) {
+    grid-area: thrust;
+  }
+
+  .touch-right .tbtn:nth-child(3) {
+    grid-area: fire;
+  }
+
+  .tbtn {
+    width: var(--touch-size);
+    height: var(--touch-size);
+    font-size: clamp(14px, 4vw, 20px);
+  }
+}
+
+@media (max-height: 480px) and (max-width: 900px) {
+  #overlay {
+    padding-top: 24px;
+  }
+
+  #title {
+    margin-bottom: 12px;
+  }
+
+  .hint {
+    margin: 2px 0;
+  }
+
+  #touch {
+    --touch-size: clamp(48px, 12vw, 64px);
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+  }
 }

@@ -14,6 +14,7 @@ A browser-based recreation of the classic 1979 Atari arcade game. Vector graphic
 | **H** | Hyperspace |
 
 Press any key (or click the screen) to start.
+Touch controls appear automatically on phones and tablets.
 
 ## Features
 
@@ -24,6 +25,7 @@ Press any key (or click the screen) to start.
 - Web Audio API-synthesized sound effects, including the accelerating heartbeat
 - Lives, score rollover at 100,000, extra lives every 10,000 points, and initials-based high scores
 - Centered 4:3 vector-monitor layout
+- Full-height mobile layout with touch controls
 
 ## Run locally
 
