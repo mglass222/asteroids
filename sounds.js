@@ -4,11 +4,13 @@ const Sounds = (() => {
   let muted = false;
   const MASTER_VOL = 0.4;
   const FIRE_SAMPLE_URL = "assets/fire.wav";
+  const FIRE_RETRY_COOLDOWN_MS = 5000;
 
   let thrustSource = null;
   let thrustGain = null;
   let fireBuffer = null;
   let fireLoadPromise = null;
+  let fireLoadFailedAt = 0;
 
   function init() {
     if (ctx) {
@@ -51,6 +53,9 @@ const Sounds = (() => {
 
   function loadFireSample() {
     if (!ctx || fireLoadPromise) return fireLoadPromise;
+    if (fireLoadFailedAt && Date.now() - fireLoadFailedAt < FIRE_RETRY_COOLDOWN_MS) {
+      return null;
+    }
     fireLoadPromise = fetch(assetUrl(FIRE_SAMPLE_URL))
       .then((res) => {
         if (!res.ok) throw new Error(`Failed to load ${FIRE_SAMPLE_URL}`);
@@ -59,9 +64,11 @@ const Sounds = (() => {
       .then((data) => ctx.decodeAudioData(data))
       .then((buffer) => {
         fireBuffer = buffer;
+        fireLoadFailedAt = 0;
       })
       .catch((err) => {
         fireLoadPromise = null;
+        fireLoadFailedAt = Date.now();
         console.warn(err);
       });
     return fireLoadPromise;

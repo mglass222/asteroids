@@ -4,10 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Asteroids</title>
-  <script>
-    window.ASTEROIDS_ASSET_VERSION = Date.now().toString(36);
-    document.write('<link rel="stylesheet" href="style.css?v=' + window.ASTEROIDS_ASSET_VERSION + '">');
-  </script>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div id="cabinet">
@@ -31,9 +28,7 @@
       </div>
     </div>
   </div>
-  <script>
-    document.write('<script src="sounds.js?v=' + window.ASTEROIDS_ASSET_VERSION + '"><\/script>');
-    document.write('<script src="game.js?v=' + window.ASTEROIDS_ASSET_VERSION + '"><\/script>');
-  </script>
+  <script src="sounds.js"></script>
+  <script src="game.js"></script>
 </body>
 </html>
