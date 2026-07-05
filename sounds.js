@@ -3,9 +3,14 @@ const Sounds = (() => {
   let master = null;
   let muted = false;
   const MASTER_VOL = 0.4;
+  const FIRE_SAMPLE_URL = "assets/fire.wav";
+  const FIRE_RETRY_COOLDOWN_MS = 5000;
 
   let thrustSource = null;
   let thrustGain = null;
+  let fireBuffer = null;
+  let fireLoadPromise = null;
+  let fireLoadFailedAt = 0;
 
   function init() {
     if (ctx) {
@@ -16,6 +21,7 @@ const Sounds = (() => {
     master = ctx.createGain();
     master.gain.value = muted ? 0 : MASTER_VOL;
     master.connect(ctx.destination);
+    loadFireSample();
   }
 
   function setMuted(m) {
@@ -38,6 +44,50 @@ const Sounds = (() => {
     gain.connect(master);
     osc.start();
     osc.stop(ctx.currentTime + duration + 0.02);
+  }
+
+  function assetUrl(path) {
+    const version = window.ASTEROIDS_ASSET_VERSION;
+    return version ? `${path}?v=${version}` : path;
+  }
+
+  function loadFireSample() {
+    if (!ctx || fireLoadPromise) return fireLoadPromise;
+    if (fireLoadFailedAt && Date.now() - fireLoadFailedAt < FIRE_RETRY_COOLDOWN_MS) {
+      return null;
+    }
+    fireLoadPromise = fetch(assetUrl(FIRE_SAMPLE_URL))
+      .then((res) => {
+        if (!res.ok) throw new Error(`Failed to load ${FIRE_SAMPLE_URL}`);
+        return res.arrayBuffer();
+      })
+      .then((data) => ctx.decodeAudioData(data))
+      .then((buffer) => {
+        fireBuffer = buffer;
+        fireLoadFailedAt = 0;
+      })
+      .catch((err) => {
+        fireLoadPromise = null;
+        fireLoadFailedAt = Date.now();
+        console.warn(err);
+      });
+    return fireLoadPromise;
+  }
+
+  function playBuffer(buffer, vol) {
+    if (!ctx || !buffer) return false;
+    const src = ctx.createBufferSource();
+    const gain = ctx.createGain();
+    src.buffer = buffer;
+    gain.gain.value = vol;
+    src.connect(gain);
+    gain.connect(master);
+    src.onended = () => {
+      src.disconnect();
+      gain.disconnect();
+    };
+    src.start();
+    return true;
   }
 
   function noiseBurst(duration, vol, filterFreq) {
@@ -113,7 +163,7 @@ const Sounds = (() => {
     lfo.connect(lfoGain);
     lfoGain.connect(osc.frequency);
 
-    gain.gain.value = large ? 0.07 : 0.055;
+    gain.gain.value = large ? 0.045 : 0.035;
     osc.connect(gain);
     gain.connect(master);
     lfo.start();
@@ -141,11 +191,18 @@ const Sounds = (() => {
     setMuted,
 
     fire() {
-      tone(880, 0.06, "square", 0.12);
+      if (playBuffer(fireBuffer, 0.22)) return;
+      loadFireSample();
+      tone(1320, 0.045, "square", 0.1, 520);
+      tone(660, 0.035, "square", 0.035, 330);
     },
 
     ufoFire() {
       tone(220, 0.08, "square", 0.1, 110);
+    },
+
+    heartbeat(high) {
+      tone(high ? 72 : 58, 0.045, "square", 0.075);
     },
 
     asteroidHit(size) {

@@ -24,12 +24,15 @@
 
   resizeCanvas();
   window.addEventListener("resize", resizeCanvas);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", resizeCanvas);
+  }
 
   // --- Original-style tuning ---
   const ROT_SPEED = 0.078;       // ~4.5°/frame @ 60fps
-  const THRUST = 0.15;
+  const THRUST = 0.09;
   const MAX_SPEED = 8;
-  const FRICTION = 0;            // space: no drag
+  const FRICTION = 0.0025;       // original-style slight velocity decay
   const BULLET_SPEED = 12;
   const BULLET_LIFE = 42;        // ~0.7s
   const MAX_BULLETS = 4;
@@ -37,12 +40,16 @@
   const HYPER_COOLDOWN = 180;
   const RESPAWN_INVULN = 180;    // 3s blink
   const EXTRA_LIFE_SCORE = 10000;
+  const SCORE_ROLLOVER = 100000;
+  const HIGH_SCORE_LIMIT = 10;
+  const HIGH_SCORE_KEY = "asteroids-hi-table";
 
   const ASTEROID_SPEED = [1.0, 1.6, 2.4]; // large, medium, small
   const ASTEROID_RADII = [50, 28, 14];
   const ASTEROID_VERTS = [12, 10, 8];
   const ASTEROID_SCORE = [20, 50, 100];
   const ASTEROID_JAG = 0.45;     // vertex radius variation
+  const ASTEROID_OBJECT_CAP = 26;
 
   const SHIP_VERTS = [
     [12, 0],
@@ -58,18 +65,29 @@
   const UFO_FIRE_LARGE = 120;
   const UFO_FIRE_SMALL = 45;
 
+  const HEARTBEAT_SLOW = 52;
+  const HEARTBEAT_FAST = 18;
+
   const keys = {};
-  let gameState = "title"; // title | playing | dead | gameover
+  let gameState = "title"; // title | playing | dead | initials | gameover
   let paused = false;
   let muted = false;
   let score = 0;
-  let highScore = parseInt(localStorage.getItem("asteroids-hi") || "0", 10);
+  let scoreTotal = 0;
+  let highScores = loadHighScores();
+  let highScore = getTopHighScore();
   let lives = 3;
   let wave = 0;
   let nextExtraLife = EXTRA_LIFE_SCORE;
   let frame = 0;
   let ufoTimer = 0;
   let deathTimer = 0;
+  let waveHits = 0;
+  let waveHitTarget = 1;
+  let heartbeatTimer = 0;
+  let heartbeatHigh = false;
+  let initialsEntry = "";
+  let pendingInitialScore = 0;
 
   let bullets = [];
   let asteroids = [];
@@ -84,6 +102,68 @@
 
   function randInt(min, max) {
     return Math.floor(rand(min, max + 1));
+  }
+
+  function loadHighScores() {
+    try {
+      const raw = localStorage.getItem(HIGH_SCORE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          return parsed
+            .map((entry) => ({
+              initials: normalizeInitials(entry.initials || "AAA"),
+              score: clampScore(entry.score || 0),
+            }))
+            .filter((entry) => entry.score > 0)
+            .sort((a, b) => b.score - a.score)
+            .slice(0, HIGH_SCORE_LIMIT);
+        }
+      }
+      const oldScore = clampScore(parseInt(localStorage.getItem("asteroids-hi") || "0", 10));
+      return oldScore > 0 ? [{ initials: "AAA", score: oldScore }] : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function saveHighScores() {
+    localStorage.setItem(HIGH_SCORE_KEY, JSON.stringify(highScores));
+  }
+
+  function normalizeInitials(value) {
+    return String(value || "")
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "")
+      .slice(0, 3)
+      .padEnd(3, "A");
+  }
+
+  function clampScore(value) {
+    const numeric = Number(value);
+    return Math.max(0, Math.floor(numeric) % SCORE_ROLLOVER);
+  }
+
+  function displayScore(value) {
+    return String(clampScore(value)).padStart(5, "0");
+  }
+
+  function getTopHighScore() {
+    return highScores.length ? highScores[0].score : 0;
+  }
+
+  function qualifiesHighScore(value) {
+    if (value <= 0) return false;
+    if (highScores.length < HIGH_SCORE_LIMIT) return true;
+    return value > highScores[highScores.length - 1].score;
+  }
+
+  function addHighScore(initials, value) {
+    highScores.push({ initials: normalizeInitials(initials), score: clampScore(value) });
+    highScores.sort((a, b) => b.score - a.score);
+    highScores = highScores.slice(0, HIGH_SCORE_LIMIT);
+    highScore = getTopHighScore();
+    saveHighScores();
   }
 
   function wrap(x, y) {
@@ -153,7 +233,8 @@
     return verts;
   }
 
-  function spawnAsteroid(x, y, size, vx, vy) {
+  function spawnAsteroid(x, y, size, vx, vy, pendingRemovalCount = 0) {
+    if (asteroids.length - pendingRemovalCount >= ASTEROID_OBJECT_CAP) return false;
     if (vx === undefined) {
       const speed = ASTEROID_SPEED[size] * rand(0.7, 1.3);
       const angle = rand(0, TAU);
@@ -177,6 +258,7 @@
       rot: rand(-0.02, 0.02),
       angle: 0,
     });
+    return true;
   }
 
   function spawnAsteroidOffscreen(size) {
@@ -210,11 +292,42 @@
     // Note: a saucer already on screen is allowed to fly out on its own rather
     // than vanishing the instant the last asteroid is destroyed.
     asteroids = [];
-    ufoTimer = UFO_SPAWN_DELAY;
-    const count = 3 + wave; // wave 1: 4 large asteroids (original)
+    ufoTimer = nextUfoDelay(false);
+    waveHits = 0;
+    const count = Math.min(12, 2 + wave * 2); // wave 1: 4, then +2 up to 12
+    waveHitTarget = count * 7;
     for (let i = 0; i < count; i++) {
       spawnAsteroidSafe(0);
     }
+  }
+
+  function nextUfoDelay(applyLurkPressure = true) {
+    const scorePressure = Math.min(360, Math.floor(scoreTotal / 120));
+    const lurkPressure = applyLurkPressure && asteroids.length <= 2 ? 300 : 0;
+    return Math.max(360, UFO_SPAWN_DELAY - scorePressure - lurkPressure + randInt(0, 240));
+  }
+
+  function shouldSpawnLargeUfo() {
+    if (scoreTotal >= 40000) return false;
+    const smallChance = Math.min(0.75, scoreTotal / 40000);
+    return Math.random() >= smallChance;
+  }
+
+  function smallUfoAimError() {
+    return Math.max(0.035, 0.32 - scoreTotal / 140000);
+  }
+
+  function heartbeatInterval() {
+    const progress = Math.min(1, waveHits / Math.max(1, waveHitTarget));
+    return Math.round(HEARTBEAT_SLOW - (HEARTBEAT_SLOW - HEARTBEAT_FAST) * progress);
+  }
+
+  function updateHeartbeat() {
+    heartbeatTimer--;
+    if (heartbeatTimer > 0) return;
+    Sounds.heartbeat(heartbeatHigh);
+    heartbeatHigh = !heartbeatHigh;
+    heartbeatTimer = heartbeatInterval();
   }
 
   function startGame() {
@@ -227,9 +340,14 @@
       Sounds.setThrust(false);
       stopAllUfoSounds();
       score = 0;
+      scoreTotal = 0;
       lives = 3;
       wave = 0;
       nextExtraLife = EXTRA_LIFE_SCORE;
+      heartbeatTimer = 0;
+      heartbeatHigh = false;
+      highScores = loadHighScores();
+      highScore = getTopHighScore();
       bullets = [];
       particles = [];
       ufos = [];
@@ -241,15 +359,15 @@
   }
 
   function addScore(pts) {
-    score += pts;
-    if (score >= nextExtraLife) {
+    score = (score + pts) % SCORE_ROLLOVER;
+    scoreTotal += pts;
+    while (scoreTotal >= nextExtraLife) {
       lives++;
       nextExtraLife += EXTRA_LIFE_SCORE;
       Sounds.extraLife();
     }
     if (score > highScore) {
       highScore = score;
-      localStorage.setItem("asteroids-hi", String(highScore));
     }
   }
 
@@ -284,7 +402,7 @@
 
   function fireBullet() {
     if (ship.dead || ship.exploding || ship.fireCooldown > 0) return;
-    if (bullets.length >= MAX_BULLETS) return;
+    if (bullets.filter((b) => !b.enemy).length >= MAX_BULLETS) return;
 
     ship.fireCooldown = FIRE_COOLDOWN;
     const tip = 12;
@@ -362,15 +480,15 @@
     const y = rand(40, H - 40);
     const speed = large ? UFO_LARGE_SPEED : UFO_SMALL_SPEED;
     const vx = fromLeft ? speed : -speed;
+    const vyChoices = large ? [-0.7, 0, 0.7] : [-1.4, 0, 1.4];
     ufos.push({
       x,
       y,
       vx,
-      vy: 0,
+      vy: vyChoices[randInt(0, vyChoices.length - 1)],
       large,
       fireTimer: large ? UFO_FIRE_LARGE : UFO_FIRE_SMALL,
-      dir: 1,
-      wobble: rand(0, TAU),
+      turnTimer: randInt(30, 90),
       sound: Sounds.createUfoSound(large),
     });
   }
@@ -381,8 +499,9 @@
       // Large UFO: random shots
       angle = rand(0, TAU);
     } else {
-      // Small UFO: aims at ship with slight inaccuracy
-      angle = Math.atan2(ship.y - ufo.y, ship.x - ufo.x) + rand(-0.15, 0.15);
+      // Small UFO: aims at ship, tightening up as the score climbs.
+      const error = smallUfoAimError();
+      angle = Math.atan2(ship.y - ufo.y, ship.x - ufo.x) + rand(-error, error);
     }
     const speed = 5;
     bullets.push({
@@ -416,20 +535,35 @@
 
   function splitAsteroid(ast) {
     const { x, y, size, vx, vy } = ast;
+    if (size < 2 && asteroids.length - 1 + 2 > ASTEROID_OBJECT_CAP) return false;
+
     Sounds.asteroidHit(size);
     if (size >= 2) {
       spawnExplosion(x, y, 8, 2, 20);
-      return;
+      return true;
     }
     const newSize = size + 1;
     const baseAngle = Math.atan2(vy, vx);
+    const originalLength = asteroids.length;
     for (let i = 0; i < 2; i++) {
       const spread = (i === 0 ? 1 : -1) * rand(0.4, 0.9);
       const speed = ASTEROID_SPEED[newSize] * rand(0.8, 1.2);
       const angle = baseAngle + spread;
-      spawnAsteroid(x, y, newSize, Math.cos(angle) * speed, Math.sin(angle) * speed);
+      const spawned = spawnAsteroid(
+        x,
+        y,
+        newSize,
+        Math.cos(angle) * speed,
+        Math.sin(angle) * speed,
+        1
+      );
+      if (!spawned) {
+        asteroids.splice(originalLength);
+        return false;
+      }
     }
     spawnExplosion(x, y, 6, 1.5, 16);
+    return true;
   }
 
   function worldVerts(x, y, angle, verts) {
@@ -503,10 +637,10 @@
     if (ship.fireCooldown > 0) ship.fireCooldown--;
     if (ship.hyperCooldown > 0) ship.hyperCooldown--;
 
-    if (keys.a) ship.angle -= ROT_SPEED;
-    if (keys.d) ship.angle += ROT_SPEED;
+    if (keys.a || keys.ArrowLeft) ship.angle -= ROT_SPEED;
+    if (keys.d || keys.ArrowRight) ship.angle += ROT_SPEED;
 
-    ship.thrusting = keys.w;
+    ship.thrusting = keys.w || keys.ArrowUp;
     if (ship.thrusting) {
       ship.vx += Math.cos(ship.angle) * THRUST;
       ship.vy += Math.sin(ship.angle) * THRUST;
@@ -554,11 +688,11 @@
 
   function updateUfos() {
     ufos = ufos.filter((u) => {
-      u.wobble += 0.04;
-      if (!u.large) {
-        u.vy = Math.sin(u.wobble) * 2;
-      } else {
-        u.vy = Math.sin(u.wobble * 0.5) * 0.8;
+      u.turnTimer--;
+      if (u.turnTimer <= 0) {
+        const vyChoices = u.large ? [-0.7, 0, 0.7] : [-1.4, 0, 1.4];
+        u.vy = vyChoices[randInt(0, vyChoices.length - 1)];
+        u.turnTimer = randInt(30, 90);
       }
       u.x += u.vx;
       u.y += u.vy;
@@ -566,8 +700,10 @@
       const margin = 24;
       if (u.y < margin) {
         u.y = margin;
+        u.vy = Math.abs(u.vy);
       } else if (u.y > H - margin) {
         u.y = H - margin;
+        u.vy = -Math.abs(u.vy);
       }
 
       u.fireTimer--;
@@ -606,10 +742,13 @@
         // spiky points register and concave gaps don't.
         if (dist(b.x, b.y, a.x, a.y) > a.maxR) continue;
         if (pointInPoly(b.x, b.y, worldVerts(a.x, a.y, a.angle, a.verts))) {
-          addScore(ASTEROID_SCORE[a.size]);
-          splitAsteroid(a);
-          asteroids.splice(ai, 1);
+          const didSplit = splitAsteroid(a);
           bullets.splice(bi, 1);
+          if (!didSplit) break;
+
+          addScore(ASTEROID_SCORE[a.size]);
+          waveHits++;
+          asteroids.splice(ai, 1);
           break;
         }
       }
@@ -666,6 +805,7 @@
 
   function updatePlaying() {
     frame++;
+    updateHeartbeat();
     updateShip();
     updateBullets();
     updateAsteroids();
@@ -679,12 +819,8 @@
 
     ufoTimer--;
     if (ufoTimer <= 0 && ufos.length === 0) {
-      // Small (aimed) saucers grow more common as the score climbs, like the
-      // original. Early game is mostly large saucers.
-      const smallChance = Math.min(0.85, 0.2 + score / 40000);
-      const large = Math.random() >= smallChance;
-      spawnUfo(large);
-      ufoTimer = UFO_SPAWN_DELAY + randInt(0, 300);
+      spawnUfo(shouldSpawnLargeUfo());
+      ufoTimer = nextUfoDelay();
     }
   }
 
@@ -704,7 +840,13 @@
       if (lives <= 0) {
         Sounds.setThrust(false);
         stopAllUfoSounds();
-        gameState = "gameover";
+        if (qualifiesHighScore(score)) {
+          pendingInitialScore = score;
+          initialsEntry = "";
+          gameState = "initials";
+        } else {
+          gameState = "gameover";
+        }
       } else {
         resetShip();
         gameState = "playing";
@@ -806,14 +948,14 @@
     ctx.fillStyle = "#fff";
     ctx.font = '16px "Courier New", Courier, monospace';
     ctx.textAlign = "left";
-    ctx.fillText(String(score).padStart(6, "0"), 20, 28);
-    ctx.textAlign = "right";
-    ctx.fillText(`HI ${String(highScore).padStart(6, "0")}`, W - 20, 28);
+    ctx.fillText(displayScore(score), 20, 28);
+    ctx.textAlign = "center";
+    ctx.fillText(`HI ${displayScore(highScore)}`, W / 2, 28);
   }
 
   function drawLives() {
     ctx.save();
-    ctx.translate(60, H - 30);
+    ctx.translate(34, 52);
     for (let i = 0; i < lives; i++) {
       ctx.save();
       ctx.translate(i * 22, 0);
@@ -832,22 +974,49 @@
     ctx.restore();
   }
 
-  function drawWave() {
-    ctx.fillStyle = "#fff";
-    ctx.font = '14px "Courier New", Courier, monospace';
-    ctx.textAlign = "center";
-    ctx.fillText(`WAVE ${wave}`, W / 2, H - 20);
-  }
-
   function drawGameOver() {
     ctx.fillStyle = "#fff";
     ctx.font = '36px "Courier New", Courier, monospace';
     ctx.textAlign = "center";
     ctx.fillText("GAME OVER", W / 2, H / 2 - 20);
     ctx.font = '16px "Courier New", Courier, monospace';
-    ctx.fillText(`SCORE ${String(score).padStart(6, "0")}`, W / 2, H / 2 + 20);
+    ctx.fillText(`SCORE ${displayScore(score)}`, W / 2, H / 2 + 20);
     ctx.font = '14px "Courier New", Courier, monospace';
     ctx.fillText("Press any key to play again", W / 2, H / 2 + 55);
+    if (highScores.length > 0) drawHighScoreTable(H / 2 + 100);
+  }
+
+  function drawHighScoreTable(startY) {
+    ctx.fillStyle = "#fff";
+    ctx.font = '16px "Courier New", Courier, monospace';
+    ctx.textAlign = "center";
+    ctx.fillText("HIGH SCORES", W / 2, startY);
+
+    ctx.font = '14px "Courier New", Courier, monospace';
+    const rows = highScores.slice(0, 5);
+    for (let i = 0; i < rows.length; i++) {
+      const entry = rows[i];
+      const y = startY + 28 + i * 20;
+      ctx.fillText(`${String(i + 1).padStart(2, " ")}  ${entry.initials}  ${displayScore(entry.score)}`, W / 2, y);
+    }
+  }
+
+  function drawInitialsEntry() {
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    ctx.font = '24px "Courier New", Courier, monospace';
+    ctx.fillText("NEW HIGH SCORE", W / 2, H / 2 - 94);
+    ctx.font = '18px "Courier New", Courier, monospace';
+    ctx.fillText(displayScore(pendingInitialScore), W / 2, H / 2 - 58);
+    ctx.fillText("ENTER INITIALS", W / 2, H / 2 - 18);
+
+    const cursorOn = Math.floor(frame / 24) % 2 === 0;
+    const slots = initialsEntry.padEnd(3, cursorOn ? "_" : " ");
+    ctx.font = '32px "Courier New", Courier, monospace';
+    ctx.fillText(slots.split("").join(" "), W / 2, H / 2 + 28);
+
+    ctx.font = '14px "Courier New", Courier, monospace';
+    ctx.fillText("ENTER SAVES", W / 2, H / 2 + 70);
   }
 
   function drawPaused() {
@@ -879,8 +1048,8 @@
     drawShip();
     drawScore();
     drawLives();
-    drawWave();
 
+    if (gameState === "initials") drawInitialsEntry();
     if (gameState === "gameover") drawGameOver();
     if (muted) drawMuted();
     if (paused) drawPaused();
@@ -909,6 +1078,7 @@
     while (acc >= STEP_MS) {
       if (gameState === "playing") updatePlaying();
       else if (gameState === "dead") updateDead();
+      else if (gameState === "initials") frame++;
       acc -= STEP_MS;
     }
     draw();
@@ -945,17 +1115,46 @@
     Sounds.setMuted(muted);
   }
 
+  function finishInitialsEntry() {
+    addHighScore(initialsEntry || "AAA", pendingInitialScore);
+    pendingInitialScore = 0;
+    initialsEntry = "";
+    gameState = "gameover";
+  }
+
+  function handleInitialsKey(e, k) {
+    e.preventDefault();
+    if (k === "Enter") {
+      finishInitialsEntry();
+      return;
+    }
+    if (k === "Backspace") {
+      initialsEntry = initialsEntry.slice(0, -1);
+      return;
+    }
+    if (/^[a-z0-9]$/.test(k) && initialsEntry.length < 3) {
+      initialsEntry += k.toUpperCase();
+      if (initialsEntry.length === 3) finishInitialsEntry();
+    }
+  }
+
   // --- Input ---
 
   function handleKeyDown(e) {
+    const k = normalizeKey(e);
+
+    if (gameState === "initials") {
+      handleInitialsKey(e, k);
+      return;
+    }
+
     if (gameState === "title" || gameState === "gameover") {
       e.preventDefault();
       beginGame();
       return;
     }
 
-    const k = normalizeKey(e);
-    if (["w", "a", "s", "d", " "].includes(k)) {
+    if (["w", "a", "s", "d", " ", "ArrowUp", "ArrowLeft", "ArrowRight"].includes(k)) {
       e.preventDefault();
     }
 
@@ -993,12 +1192,18 @@
       beginGame();
     }
   });
+  document.getElementById("cabinet").addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+  });
 
   // --- Touch controls ---
 
   function setupTouchControls() {
     const isTouch =
-      window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+      window.matchMedia("(pointer: coarse)").matches ||
+      "ontouchstart" in window ||
+      window.innerWidth <= 700 ||
+      (window.innerHeight <= 480 && window.innerWidth <= 900);
     const panel = document.getElementById("touch");
     if (!isTouch || !panel) return;
     panel.classList.add("show");
